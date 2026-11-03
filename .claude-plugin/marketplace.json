@@ -1,0 +1,15 @@
+{
+  "name": "slack-claude",
+  "description": "slk: read and reply on Slack from Claude Code as yourself, draft-first.",
+  "owner": {
+    "name": "pravnyadv",
+    "url": "https://github.com/pravnyadv"
+  },
+  "plugins": [
+    {
+      "name": "slack-messages",
+      "source": "./",
+      "description": "Slack CLI (slk) plus a Claude Code skill to read and reply on Slack as you, draft-first."
+    }
+  ]
+}
