@@ -11,14 +11,17 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--name') flags.name = argv[++i];
-    else if (a === '--count') flags.count = Number(argv[++i]);
+    else if (a === '--count' || a === '--last') flags[a.slice(2)] = Number(argv[++i]);
     else if (a.startsWith('--') && a.length > 2) flags[a.slice(2)] = true;
     else pos.push(a);
   }
   return { flags, pos };
 }
 
-const out = (flags, human, data) => console.log(flags.json ? JSON.stringify(data, null, 2) : human);
+const out = (flags, human, data) => console.log(flags.json ? JSON.stringify(data) : human);
+
+/** Short local time for a Slack ts, e.g. "05 Nov 14:32". */
+const when = (ts) => new Date(Number(ts) * 1000).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).replace(',', '');
 
 const userCache = new Map();
 const nameOfUser = async (id) => {
@@ -153,14 +156,17 @@ Steps:
 
   async read(pos, flags) {
     const { channel, threadTs } = parseTarget(pos);
-    const d = await api('conversations.replies', { channel, ts: threadTs, limit: 200 });
+    const { messages } = await api('conversations.replies', { channel, ts: threadTs, limit: 200 });
+    const hidden = flags.last ? Math.max(0, messages.length - 1 - flags.last) : 0;
     const rows = [];
-    for (const m of d.messages) {
+    for (const m of [messages[0], ...messages.slice(1 + hidden)]) {
       const name = m.user ? await nameOfUser(m.user) : (m.username || m.bot_id || 'bot');
       const text = await replaceUserIds(m.text || '');
-      rows.push({ ts: m.ts, user: m.user, name, text, time: new Date(Number(m.ts) * 1000).toLocaleString('en-GB') });
+      rows.push({ ts: m.ts, user: m.user, name, text, time: when(m.ts) });
     }
-    out(flags, rows.map((r) => `[${r.time}] ${r.name}: ${r.text}`).join('\n'), rows);
+    const lines = rows.map((r) => `[${r.time}] ${r.name}: ${r.text}`);
+    if (hidden) lines.splice(1, 0, `(${hidden} earlier replies hidden)`);
+    out(flags, lines.join('\n'), rows);
   },
 
   async reply(pos, flags) {
@@ -217,7 +223,7 @@ async function searchMessages(query, count) {
   for (let page = 1; rows.length < count && page <= 100; page++) {
     const d = await api('search.messages', { query, count: Math.min(100, count), page, sort: 'timestamp', sort_dir: 'desc' });
     for (const m of d.messages.matches) {
-      rows.push({ ts: m.ts, where: m.channel?.is_im ? 'dm' : `#${m.channel?.name || m.channel?.id}`, channel: m.channel?.id, im_with: m.channel?.is_im ? m.channel.user : null, text: m.text || '', permalink: m.permalink, time: new Date(Number(m.ts) * 1000).toLocaleString('en-GB') });
+      rows.push({ ts: m.ts, where: m.channel?.is_im ? 'dm' : `#${m.channel?.name || m.channel?.id}`, channel: m.channel?.id, im_with: m.channel?.is_im ? m.channel.user : null, text: m.text || '', permalink: m.permalink, time: when(m.ts) });
     }
     if (page >= (d.messages.paging?.pages || 1)) break;
   }
@@ -241,7 +247,7 @@ const HELP = `slk <command> [args] [--json] [--dry-run]
   sent [--count N]                          your own sent messages, newest first
   style [--list]                            print the writing profile drafts follow (SLK_STYLE)
   who <name|email>                          find users (id, handle, name, title)
-  read <permalink | channelId ts>           print a thread
+  read <permalink | channelId ts> [--last N]  print a thread (root plus the last N replies)
   reply <permalink | channelId ts> <text>   reply in the thread
   dm <@name|userId|email> <text>            direct message
   post <channelId|#name> <text>             post in a channel

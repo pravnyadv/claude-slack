@@ -133,3 +133,22 @@ test('sent pages search.messages newest first and stops at count', async () => {
   assert.strictEqual(searches.length, 2);
   assert.match(new URLSearchParams(searches[0].opts.body).get('query'), /from:<@U1>/);
 });
+
+test('read --last keeps the root and the last N replies, in short time format', async () => {
+  const msg = (i) => ({ ts: `${1700000000 + i * 60}.000100`, user: 'U1', text: `m${i}` });
+  mockFetch(async (m) => res(m === 'users.info'
+    ? { ok: true, user: { profile: { display_name: 'Ann' } } }
+    : { ok: true, messages: Array.from({ length: 6 }, (_, i) => msg(i)) }));
+  const logs = [];
+  const orig = console.log;
+  console.log = (s) => logs.push(s);
+  try {
+    await main(['read', 'C0123ABC', '1700000000.000100', '--last', '2']);
+    await main(['read', 'C0123ABC', '1700000000.000100', '--last', '2', '--json']);
+  } finally { console.log = orig; }
+  const lines = logs[0].split('\n');
+  assert.deepStrictEqual(lines.map((l) => l.replace(/^\[[^\]]+\] /, '')), ['Ann: m0', '(3 earlier replies hidden)', 'Ann: m4', 'Ann: m5']);
+  assert.match(lines[0], /^\[\d{2} [A-Z][a-z]+ \d{2}:\d{2}\] /);
+  assert.ok(!logs[1].includes('\n'), 'JSON output is compact');
+  assert.deepStrictEqual(JSON.parse(logs[1]).map((r) => r.text), ['m0', 'm4', 'm5']);
+});

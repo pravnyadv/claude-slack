@@ -31,7 +31,7 @@ It prints a Slack app manifest (user token scopes only) and the steps to create 
 slk setup [--name "App Name"] [--force]
 slk whoami
 slk who <name|email>
-slk read <permalink | channelId ts>
+slk read <permalink | channelId ts> [--last N]
 slk reply <permalink | channelId ts> "<text|@file|->"
 slk dm <@name|userId|email> "<text|@file|->"
 slk post <channelId|#name> "<text|@file|->"
