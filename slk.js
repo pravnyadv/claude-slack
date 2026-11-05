@@ -2,7 +2,7 @@
 /** slk: Slack CLI. Reads and posts as the owner of SLACK_USER_TOKEN. See README.md. */
 const fs = require('fs');
 const readline = require('readline');
-const { ROOT, api, envFile, stylePath, parseTarget, checkStyle, expandMentions, when, nameOfUser, replaceUserIds } = require('./lib/slack');
+const { ROOT, api, envFile, envValue, stylePath, parseTarget, checkStyle, expandMentions, when, nameOfUser, replaceUserIds } = require('./lib/slack');
 const listener = require('./lib/listen');
 const store = require('./lib/store');
 
@@ -143,6 +143,9 @@ async function saveAppToken() {
   fs.chmodSync(file, 0o600);
   console.log(`Saved to ${file} (mode 600). Start the listener: slk listen --install`);
 }
+
+/** SLK_SEND: "when-sure" lets Claude send without a draft when the skill's conditions hold; anything else is draft-first. */
+const sendMode = () => (envValue('SLK_SEND') === 'when-sure' ? 'when-sure' : 'draft-first');
 
 /** Process input, swappable in tests. readStdin is async: a synchronous read of a pipe can fail with EAGAIN. */
 const io = {
@@ -302,7 +305,7 @@ Steps:
     }
     const file = stylePath();
     if (!fs.existsSync(file)) throw new Error(`Style profile not found: ${file}. Set SLK_STYLE in .env to a name from "slk style --list" or a path.`);
-    console.log(`# ${file}\n\n${fs.readFileSync(file, 'utf8')}`);
+    console.log(`Send mode: ${sendMode()}\n\n# ${file}\n\n${fs.readFileSync(file, 'utf8')}`);
   },
 
   help() {
@@ -336,7 +339,7 @@ const HELP = `slk <command> [args] [--json] [--dry-run]
   whoami                                    who the token belongs to
   search "<query>" [--count N]               search messages (Slack search syntax), newest first
   sent [--count N]                          your own sent messages, newest first
-  style [--list]                            print the writing profile drafts follow (SLK_STYLE)
+  style [--list]                            print the send mode (SLK_SEND) and writing profile (SLK_STYLE)
   who <name|email>                          find users (id, handle, name, title)
   read <permalink | channelId ts> [--last N]  print a thread (root plus the last N replies)
   reply <permalink | channelId ts> <text>   reply in the thread

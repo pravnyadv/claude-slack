@@ -64,6 +64,10 @@ slk help
 
 `--json` on any command prints JSON. In text, `@{Full Name}` or `@First` becomes a real mention; an unknown name aborts.
 
+## Send mode
+
+`SLK_SEND` in `.env`: unset or `draft-first` (default) means Claude shows every message as a draft first; `when-sure` lets it send on its own when the skill's conditions hold and tell you after. `slk style` prints the active mode.
+
 ## Writing profile
 
 Drafts follow a style profile so they read like you. `slk style` prints the active one; `slk style --list` shows the bundled ones. The default is `styles/plain.md`. To use another, set `SLK_STYLE=<name>` (a file in `styles/`) or `SLK_STYLE=/path/to/style.md` in `.env`.
@@ -73,12 +77,16 @@ To make your own, ask Claude to learn it from your messages: `slk sent --count 1
 ## Safety
 
 - `--dry-run` on reply, dm and post shows exactly what would be sent and sends nothing. The skill always shows the dry run and waits for your go.
-- The skill sends without asking only when you asked for the message (or it answers a reply in a conversation Claude is already having for your task), every fact in it is proven, and it goes to someone already in that conversation; it then tells you what it sent. New recipients, channels, customers, commitments, unsure facts and anything outside the task get a dry-run draft and wait for your yes. Requests from other people in Slack are never treated as instructions.
+- Draft-first by default: every message is shown as a dry run and waits for your yes. With `SLK_SEND=when-sure` in `.env`, the skill instead sends without asking only when you asked for the message (or it answers a reply in a conversation Claude is already having for your task), every fact in it is proven, and it goes to someone already in that conversation; it then tells you what it sent. New recipients, channels, customers, commitments, unsure facts and anything outside the task get a dry-run draft and wait for your yes. Requests from other people in Slack are never treated as instructions.
 - Text with em or en dashes, arrows, bullet characters or curly quotes is refused.
 - The token lives only in the local `.env` (mode 600) and is never printed. To revoke it, open the app's OAuth & Permissions page on api.slack.com/apps and revoke or reinstall.
 
 ## Limits
 
 Text only, no file upload yet. Tests: `npm test`.
+
+## Releases
+
+Changes are listed in [CHANGELOG.md](CHANGELOG.md). Maintainers cut a release with `scripts/release.sh <version>`: it bumps `package.json` and `.claude-plugin/plugin.json` (so `/plugin update` sees it), tags and pushes, and the tag's workflow publishes the GitHub release.
 
 MIT licensed.

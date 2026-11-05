@@ -15,7 +15,7 @@
     "slk": "slk.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.5"
   },
   "scripts": {
     "test": "node --test"
