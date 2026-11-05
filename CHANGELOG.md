@@ -6,6 +6,8 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-05
+
 ### Added
 - `slk listen`: a Socket Mode listener that receives your DMs, group DMs, @mentions and replies in
   your threads as they happen and keeps them in `data/slk.db` (node:sqlite, no dependency). It only
