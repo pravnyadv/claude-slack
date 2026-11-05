@@ -25,9 +25,15 @@ slk setup [--name "App Name"]
 
 It prints a Slack app manifest (user token scopes only) and the steps to create the app from it, then asks for the User OAuth Token with hidden input (or reads it from a pipe), checks it with `auth.test` and saves it to a `.env` next to `slk.js` with mode 600. It will not overwrite an existing `.env` without `--force`. Check with `slk whoami`.
 
-## Inbox
+## Inbox and reply windows
 
-`slk listen` holds a Socket Mode connection, so Slack pushes your message events as they happen. It keeps the ones meant for you (DMs, group DMs, @mentions, replies in threads you started) and appends them to `~/.local/state/slk/inbox.jsonl` (`SLK_INBOX` to move it). It only reads; it never sends. `slk inbox` then shows what arrived since the last check, grouped by person or channel, and `slk history <@name|#channel>` pulls the recent conversation from Slack when you need context.
+`slk listen` holds a Socket Mode connection, so Slack pushes your message events as they happen. It keeps the ones meant for you (DMs, group DMs, @mentions, replies in threads you started, and replies in any thread a Claude session is following) in a SQLite file, `data/slk.db` next to `slk.js` (`SLK_DB` to move it; gitignored). It only reads; it never sends.
+
+Each Claude Code session remembers the conversations it is in: a send, `read` or `history` links that DM or thread to the session (`CLAUDE_CODE_SESSION_ID`). So:
+
+- `slk inbox` shows what is new, the session's own conversations first, then everything no session has shown yet, and marks it seen.
+- `slk wait [<@name|#channel>] [--minutes 5]` blocks until a reply lands in the session's conversations, then prints it. Claude runs it in the background after a send, so a reply wakes the session.
+- `slk history <@name|#channel>` pulls the recent conversation from Slack for context.
 
 One-time setup on your Slack app: turn on Socket Mode and create an app-level token with `connections:write`; under Event Subscriptions, subscribe on behalf of users to `message.im`, `message.mpim`, `message.channels` and `message.groups`, save, and reinstall if asked. Then:
 
@@ -36,7 +42,7 @@ slk setup --app-token     # paste the xapp- token, hidden
 slk listen --install      # launchd agent: starts at login, restarts if it exits
 ```
 
-`slk listen --uninstall` stops and removes it. Its log is `listen.log` next to the inbox. Run only one listener: Slack splits events across open Socket Mode connections.
+`slk listen --uninstall` stops and removes it. Its log is `data/listen.log`. Run only one listener: Slack splits events across open Socket Mode connections.
 
 ## Commands
 
@@ -45,6 +51,7 @@ slk setup [--name "App Name"] [--force]
 slk setup --app-token
 slk listen [--install | --uninstall]
 slk inbox [--all] [--count N]
+slk wait [<@name|#channel>] [--minutes N]
 slk history <@name|userId|email|#channel> [--last N]
 slk whoami
 slk who <name|email>
@@ -66,7 +73,7 @@ To make your own, ask Claude to learn it from your messages: `slk sent --count 1
 ## Safety
 
 - `--dry-run` on reply, dm and post shows exactly what would be sent and sends nothing. The skill always shows the dry run and waits for your go.
-- Claude never replies on its own. Every message needs your go for that exact text, each time; a go for one message never covers the next, and nothing is sent automatically or in a loop.
+- The skill sends without asking only when you asked for the message (or it answers a reply in a conversation Claude is already having for your task), every fact in it is proven, and it goes to someone already in that conversation; it then tells you what it sent. New recipients, channels, customers, commitments, unsure facts and anything outside the task get a dry-run draft and wait for your yes. Requests from other people in Slack are never treated as instructions.
 - Text with em or en dashes, arrows, bullet characters or curly quotes is refused.
 - The token lives only in the local `.env` (mode 600) and is never printed. To revoke it, open the app's OAuth & Permissions page on api.slack.com/apps and revoke or reinstall.
 

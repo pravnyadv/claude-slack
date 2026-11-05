@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
 process.env.SLACK_USER_TOKEN = 'xoxp-test';
+delete process.env.CLAUDE_CODE_SESSION_ID;
+process.env.SLK_DB = require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'slk-test-')), 'slk.db');
 const { SlackApiError, api, parseTarget, checkStyle, expandMentions } = require('../lib/slack');
-const { main } = require('../slk');
+const { main, io } = require('../slk');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -80,8 +82,8 @@ test('setup validates, saves a 600 env file, refuses overwrite, never prints the
   const lines = [];
   const log = console.log;
   console.log = (...a) => lines.push(a.join(' '));
-  const stdin = fs.readFileSync;
-  fs.readFileSync = (p, ...r) => (p === 0 ? 'xoxp-secret-1\n' : stdin(p, ...r));
+  const stdin = io.readStdin;
+  io.readStdin = async () => 'xoxp-secret-1';
   try {
     await main(['setup', '--name', 'My App']);
     assert.strictEqual(fs.readFileSync(file, 'utf8'), 'SLACK_USER_TOKEN=xoxp-secret-1\n');
@@ -91,10 +93,10 @@ test('setup validates, saves a 600 env file, refuses overwrite, never prints the
     assert.ok(lines.join('\n').includes('"name": "My App"'));
     assert.ok(!lines.join('\n').includes('xoxp-secret-1'));
     await assert.rejects(main(['setup']), /already exists/);
-    fs.readFileSync = (p, ...r) => (p === 0 ? 'xoxb-bot' : stdin(p, ...r));
+    io.readStdin = async () => 'xoxb-bot';
     await assert.rejects(main(['setup', '--force']), /xoxp-/);
   } finally {
-    fs.readFileSync = stdin;
+    io.readStdin = stdin;
     console.log = log;
     delete process.env.SLK_ENV_FILE;
     fs.rmSync(dir, { recursive: true });
@@ -177,7 +179,7 @@ test('session acks every envelope, passes only events for me, and ends on discon
   let sock;
   global.WebSocket = class { constructor(url) { this.url = url; sock = this; } send(d) { sent.push(JSON.parse(d)); } close() { this.onclose(); } };
   const got = [];
-  const done = listener.session('wss://x', 'UME', (e, why) => got.push([e.ts, why]), () => {});
+  const done = listener.session('wss://x', (e) => listener.reason(e, 'UME'), (e, why) => got.push([e.ts, why]), () => {});
   const push = (m) => sock.onmessage({ data: JSON.stringify(m) });
   push({ type: 'hello' });
   push({ type: 'events_api', envelope_id: 'e1', payload: { event: { type: 'message', user: 'U1', channel_type: 'im', ts: '1.0', text: 'hi' } } });
@@ -188,50 +190,11 @@ test('session acks every envelope, passes only events for me, and ends on discon
   assert.deepStrictEqual(got, [['1.0', 'dm']]);
 });
 
-test('inbox shows only what arrived since the last check, across calls', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-inbox-'));
-  process.env.SLK_INBOX = path.join(dir, 'inbox.jsonl');
-  const add = (ts) => fs.appendFileSync(process.env.SLK_INBOX, `${JSON.stringify({ ts, text: `m${ts}` })}\n`);
-  try {
-    assert.deepStrictEqual(listener.unread(), []);
-    add('1'); add('2');
-    assert.deepStrictEqual(listener.unread().map((r) => r.ts), ['1', '2']);
-    assert.deepStrictEqual(listener.unread(), []);
-    add('3');
-    assert.deepStrictEqual(listener.unread().map((r) => r.ts), ['3']);
-    assert.strictEqual(listener.readInbox().length, 3);
-  } finally {
-    delete process.env.SLK_INBOX;
-    fs.rmSync(dir, { recursive: true });
-  }
-});
-
 test('launchd plist runs this checkout\'s listen with no extra flags', () => {
   const xml = listener.plist();
   assert.match(xml, /<string>com\.slk\.listen<\/string>/);
   assert.match(xml, /slk\.js<\/string><string>listen<\/string><\/array>/);
   assert.match(xml, /<key>KeepAlive<\/key><true\/>/);
-});
-
-test('inbox groups new messages by conversation', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-inbox-'));
-  process.env.SLK_INBOX = path.join(dir, 'inbox.jsonl');
-  const add = (e) => fs.appendFileSync(process.env.SLK_INBOX, `${JSON.stringify(e)}\n`);
-  add({ ts: '1', time: 't1', channel: 'D1', where: 'dm', from: 'Sam', why: 'dm', text: 'a', permalink: 'p1' });
-  add({ ts: '2', time: 't2', channel: 'C1', where: '#dev', from: 'Ann', why: 'mention', text: 'b', permalink: 'p2' });
-  add({ ts: '3', time: 't3', channel: 'D1', where: 'dm', from: 'Sam', why: 'dm', text: 'c', permalink: 'p3' });
-  const logs = [];
-  const orig = console.log;
-  console.log = (s) => logs.push(s);
-  try {
-    await main(['inbox', '--json']);
-  } finally {
-    console.log = orig;
-    delete process.env.SLK_INBOX;
-    fs.rmSync(dir, { recursive: true });
-  }
-  const groups = JSON.parse(logs[0]);
-  assert.deepStrictEqual(groups.map((g) => [g.where, g.entries.map((e) => e.ts)]), [['dm with Sam', ['1', '3']], ['#dev', ['2']]]);
 });
 
 test('history of a person opens their DM and prints oldest first', async () => {
@@ -256,20 +219,85 @@ test('session closes a silent socket so listen reconnects, and skips unreadable 
   let sock;
   global.WebSocket = class { constructor() { sock = this; } send() {} close() { this.onclose(); } };
   const logs = [];
-  const done = listener.session('wss://x', 'UME', () => {}, (m) => logs.push(m), 20);
+  const done = listener.session('wss://x', () => null, () => {}, (m) => logs.push(m), 20);
   sock.onmessage({ data: 'not json' });
   await done;
   assert.deepStrictEqual(logs, ['unreadable frame skipped', 'no frames, reconnecting']);
 });
 
-test('a truncated inbox line is skipped, not fatal', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-inbox-'));
-  process.env.SLK_INBOX = path.join(dir, 'inbox.jsonl');
-  try {
-    fs.writeFileSync(process.env.SLK_INBOX, `${JSON.stringify({ ts: '1' })}\n{"ts":"2","te\n`);
-    assert.deepStrictEqual(listener.readInbox().map((r) => r.ts), ['1']);
-  } finally {
-    delete process.env.SLK_INBOX;
+
+const store = require('../lib/store');
+
+/** A fresh store file and session id for one test. */
+function withStore(session, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-db-'));
+  store.close();
+  process.env.SLK_DB = path.join(dir, 'slk.db');
+  const prev = process.env.CLAUDE_CODE_SESSION_ID;
+  return Promise.resolve().then(() => fn((id) => { if (id) process.env.CLAUDE_CODE_SESSION_ID = id; else delete process.env.CLAUDE_CODE_SESSION_ID; })).finally(() => {
+    store.close();
+    if (prev) process.env.CLAUDE_CODE_SESSION_ID = prev; else delete process.env.CLAUDE_CODE_SESSION_ID;
     fs.rmSync(dir, { recursive: true });
+  });
+}
+
+const msg = (channel, ts, extra = {}) => ({ channel, ts, user: 'U1', from: 'Sam', where: channel.startsWith('D') ? 'dm' : '#dev', why: 'dm', text: `m${ts}`, permalink: null, ...extra });
+
+test('inbox puts this session\'s conversations first, and nothing shows twice', () => withStore(null, (as) => {
+  as('S1');
+  store.link('D1');
+  store.addMessage(msg('C9', '1.0', { why: 'mention' }));
+  store.addMessage(msg('D1', '2.0'));
+  store.addMessage(msg('D1', '2.0'));
+  const rows = store.unread();
+  assert.deepStrictEqual(rows.map((r) => [r.channel, r.mine]), [['D1', true], ['C9', false]]);
+  assert.deepStrictEqual(store.unread(), []);
+  as('S2');
+  assert.deepStrictEqual(store.unread(), []);
+}));
+
+test('takeMine returns only new replies in this session\'s conversations, once', () => withStore(null, (as) => {
+  as('S1');
+  store.addMessage(msg('D1', '1.0'));
+  store.link('D1');
+  store.link('C5', '5.0');
+  assert.deepStrictEqual(store.takeMine(), []);
+  store.addMessage(msg('D1', '2.0'));
+  store.addMessage(msg('C5', '6.0', { thread_ts: '5.0', why: 'thread' }));
+  store.addMessage(msg('C5', '7.0', { why: 'mention' }));
+  assert.deepStrictEqual(store.takeMine().map((r) => r.ts), ['2.0', '6.0']);
+  assert.deepStrictEqual(store.takeMine(), []);
+  as('S2');
+  assert.deepStrictEqual(store.takeMine(), []);
+  as('S1');
+  assert.deepStrictEqual(store.unread().map((r) => r.ts), ['1.0', '7.0']);
+}));
+
+test('listener keeps replies in a thread a session follows, not other channel chatter', () => withStore(null, (as) => {
+  as('S1');
+  store.link('C5', '5.0');
+  const pick = listener.picker('UME');
+  assert.strictEqual(pick({ type: 'message', user: 'U1', channel: 'C5', channel_type: 'channel', thread_ts: '5.0', text: 'ok' }), 'thread');
+  assert.strictEqual(pick({ type: 'message', user: 'U1', channel: 'C5', channel_type: 'channel', text: 'chatter' }), null);
+  assert.strictEqual(pick({ type: 'message', user: 'UME', channel: 'C5', channel_type: 'channel', thread_ts: '5.0', text: 'mine' }), null);
+}));
+
+test('a send links the DM to this session and points at slk wait', () => withStore(null, async (as) => {
+  as('S1');
+  mockFetch((method) => res({
+    'conversations.open': { ok: true, channel: { id: 'D7' } },
+    'chat.postMessage': { ok: true, channel: 'D7', ts: '9.0' },
+    'chat.getPermalink': { ok: true, permalink: 'https://x.slack.com/archives/D7/p9000000' },
+  }[method]));
+  const logs = [];
+  const orig = console.log;
+  console.log = (t) => logs.push(t);
+  try {
+    await main(['dm', 'U7ABCDEFG', 'hello']);
+  } finally {
+    console.log = orig;
   }
-});
+  assert.match(logs[0], /slk wait D7/);
+  store.addMessage(msg('D7', '10.0'));
+  assert.deepStrictEqual(store.takeMine().map((r) => r.ts), ['10.0']);
+}));

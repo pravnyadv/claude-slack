@@ -4,6 +4,7 @@ const fs = require('fs');
 const readline = require('readline');
 const { ROOT, api, envFile, stylePath, parseTarget, checkStyle, expandMentions, when, nameOfUser, replaceUserIds } = require('./lib/slack');
 const listener = require('./lib/listen');
+const store = require('./lib/store');
 
 
 function parseArgs(argv) {
@@ -12,7 +13,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--name') flags.name = argv[++i];
-    else if (a === '--count' || a === '--last') flags[a.slice(2)] = Number(argv[++i]);
+    else if (a === '--count' || a === '--last' || a === '--minutes') flags[a.slice(2)] = Number(argv[++i]);
     else if (a.startsWith('--') && a.length > 2) flags[a.slice(2)] = true;
     else pos.push(a);
   }
@@ -55,6 +56,18 @@ async function resolveUserId(query) {
   return pick[0].id;
 }
 
+/** Group entries by conversation, keeping arrival order. */
+const byConversation = (rows) => [...Map.groupBy(rows, (r) => r.channel).values()].map((list) => ({
+  channel: list[0].channel,
+  where: list[0].where === 'dm' ? `dm with ${list[0].from}` : list[0].where,
+  entries: list,
+}));
+
+const showConversation = (c) => `${c.where} (${c.entries.length})\n${c.entries.map((r) => `  [${when(r.ts)}] ${r.from}${r.why === 'thread' ? ' (thread)' : ''}: ${r.text}\n    ${r.permalink || `${r.channel} ${r.ts}`}`).join('\n')}`;
+
+/** A warning line when the listener agent is not running, since nothing new can arrive without it. */
+const listenerNote = () => (listener.running() ? '' : '\n(listener not running: slk listen --install)');
+
 /** Channel id for a person (opens or finds the DM, no message sent), a #name or a raw channel id. */
 async function conversationOf(ref) {
   if (ref.startsWith('#') || /^[CGD][A-Z0-9]{6,}$/.test(ref)) return resolveChannel(ref);
@@ -95,7 +108,9 @@ async function send(flags, label, channel, rawText, extra = {}) {
   }
   const d = await api('chat.postMessage', { channel, text, ...extra });
   const { permalink } = await api('chat.getPermalink', { channel: d.channel, message_ts: d.ts });
-  out(flags, permalink, { channel: d.channel, ts: d.ts, permalink });
+  // A DM is one conversation; elsewhere this session follows the thread the message lives in.
+  store.link(d.channel, d.channel.startsWith('D') ? '' : (extra.thread_ts || d.ts));
+  out(flags, `${permalink}\nWatch for the reply: slk wait ${d.channel}`, { channel: d.channel, ts: d.ts, permalink });
 }
 
 /** Message events Slack pushes on the owner's behalf; the listener keeps only the ones meant for them. */
@@ -119,7 +134,7 @@ async function saveAppToken() {
      ${USER_EVENTS.join(', ')}. Save, and reinstall the app if Slack asks.
   4. Paste the app-level token below (it starts with xapp-).
 `);
-  const token = process.stdin.isTTY ? await promptHidden('Paste the app-level token (hidden): ') : fs.readFileSync(0, 'utf8').trim();
+  const token = process.stdin.isTTY ? await promptHidden('Paste the app-level token (hidden): ') : await io.readStdin();
   if (!token.startsWith('xapp-')) throw new Error('That is not an app-level token: it must start with xapp-.');
   await api('apps.connections.open', {}, false, token);
   const file = envFile();
@@ -128,6 +143,16 @@ async function saveAppToken() {
   fs.chmodSync(file, 0o600);
   console.log(`Saved to ${file} (mode 600). Start the listener: slk listen --install`);
 }
+
+/** Process input, swappable in tests. readStdin is async: a synchronous read of a pipe can fail with EAGAIN. */
+const io = {
+  async readStdin() {
+    let data = '';
+    for await (const chunk of process.stdin) data += chunk;
+
+    return data.trim();
+  },
+};
 
 /** Read a line from stdin. On a TTY the typed characters are not echoed. */
 function promptHidden(question) {
@@ -156,7 +181,7 @@ Steps:
   3. Click Create, then Install to Workspace and allow it.
   4. Open OAuth & Permissions and copy the User OAuth Token (starts with xoxp-).
 `);
-    const token = process.stdin.isTTY ? await promptHidden('Paste the User OAuth Token (hidden): ') : fs.readFileSync(0, 'utf8').trim();
+    const token = process.stdin.isTTY ? await promptHidden('Paste the User OAuth Token (hidden): ') : await io.readStdin();
     if (!token.startsWith('xoxp-')) throw new Error('That is not a user token: it must start with xoxp-.');
     const d = await api('auth.test', {}, false, token);
     fs.writeFileSync(file, `SLACK_USER_TOKEN=${token}\n`, { mode: 0o600 });
@@ -170,21 +195,32 @@ Steps:
       listener.uninstallAgent();
       return console.log(`Stopped and removed ${listener.LABEL}.`);
     }
-    if (flags.install) return console.log(`Installed and started ${listener.installAgent()}. Inbox: ${listener.inboxFile()}`);
+    if (flags.install) return console.log(`Installed and started ${listener.installAgent()}. Store: ${store.dbFile()}`);
     await listener.listen();
   },
 
-  /** Messages meant for you since the last check, grouped by conversation (--all: the last --count instead). */
+  /**
+   * "Check Slack": what is new, this session's own conversations first, grouped by conversation.
+   * --all shows the last --count stored messages instead and marks nothing.
+   */
   async inbox(_pos, flags) {
-    const rows = flags.all ? listener.readInbox().slice(-(flags.count || 20)) : listener.unread();
-    const groups = [...Map.groupBy(rows, (r) => r.channel).values()].map((list) => ({
-      channel: list[0].channel,
-      where: list[0].where === 'dm' ? `dm with ${list[0].from}` : list[0].where,
-      entries: list,
-    }));
-    const line = (r) => `  [${r.time}] ${r.from}${r.why === 'thread' ? ' (in your thread)' : ''}: ${r.text}\n    ${r.permalink || `${r.channel} ${r.ts}`}`;
-    const human = groups.map((g) => `${g.where} (${g.entries.length})\n${g.entries.map(line).join('\n')}`).join('\n\n');
-    out(flags, human || (flags.all ? 'Inbox is empty.' : 'Nothing new.'), groups);
+    const rows = flags.all ? store.recent(flags.count || 20) : store.unread();
+    const sections = flags.all ? [['Recent', rows]] : [['In this session\'s conversations', rows.filter((r) => r.mine)], ['Other new messages', rows.filter((r) => !r.mine)]];
+    const shaped = sections.filter(([, list]) => list.length).map(([title, list]) => ({ title, conversations: byConversation(list) }));
+    const human = shaped.map((s) => `${s.title}\n${s.conversations.map(showConversation).join('\n')}`).join('\n\n');
+    out(flags, `${human || (flags.all ? 'Nothing stored yet.' : 'Nothing new.')}${listenerNote()}`, shaped);
+  },
+
+  /** Block until a reply arrives in this session's conversations (or only `target`), or --minutes (default 5) pass. */
+  async wait([target], flags) {
+    const minutes = flags.minutes || 5;
+    const channel = target ? await conversationOf(target) : null;
+    if (channel) store.link(channel);
+    for (const deadline = Date.now() + minutes * 60_000; Date.now() < deadline; await new Promise((r) => setTimeout(r, 3000))) {
+      const rows = store.takeMine(channel);
+      if (rows.length) return out(flags, byConversation(rows).map(showConversation).join('\n'), rows);
+    }
+    out(flags, `No reply in ${minutes} min.${listenerNote()}`, []);
   },
 
   /** The recent conversation with a person (their DM) or in a channel, oldest first: context before drafting. */
@@ -192,6 +228,7 @@ Steps:
     if (!who) throw new Error('Usage: slk history <@name|userId|email|#channel|channelId> [--last N]');
     const channel = await conversationOf(who);
     const { messages } = await api('conversations.history', { channel, limit: flags.last || 20 });
+    store.link(channel);
     const rows = [];
     for (const m of messages.reverse()) {
       rows.push({ ts: m.ts, time: when(m.ts), name: m.user ? await nameOfUser(m.user) : (m.username || 'bot'), text: await replaceUserIds(m.text || ''), replies: m.reply_count || 0 });
@@ -213,6 +250,7 @@ Steps:
   async read(pos, flags) {
     const { channel, threadTs } = parseTarget(pos);
     const { messages } = await api('conversations.replies', { channel, ts: threadTs, limit: 200 });
+    store.link(channel, channel.startsWith('D') ? '' : threadTs);
     const hidden = flags.last ? Math.max(0, messages.length - 1 - flags.last) : 0;
     const rows = [];
     for (const m of [messages[0], ...messages.slice(1 + hidden)]) {
@@ -292,7 +330,8 @@ const HELP = `slk <command> [args] [--json] [--dry-run]
   setup [--name "App Name"] [--force]      print the app manifest, then save your token
   setup --app-token                         save the app-level token the inbox listener needs
   listen [--install | --uninstall]          receive your DMs, mentions and thread replies (launchd agent)
-  inbox [--all] [--count N]                 messages for you since the last check, by conversation
+  inbox [--all] [--count N]                 what is new for you, this session's conversations first
+  wait [<@name|#channel>] [--minutes N]     block until a reply arrives in this session's conversations
   history <@name|#channel> [--last N]       the recent conversation with a person or in a channel
   whoami                                    who the token belongs to
   search "<query>" [--count N]               search messages (Slack search syntax), newest first
@@ -322,4 +361,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main, commands };
+module.exports = { main, commands, io };
