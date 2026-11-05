@@ -152,3 +152,124 @@ test('read --last keeps the root and the last N replies, in short time format', 
   assert.ok(!logs[1].includes('\n'), 'JSON output is compact');
   assert.deepStrictEqual(JSON.parse(logs[1]).map((r) => r.text), ['m0', 'm4', 'm5']);
 });
+
+const listener = require('../lib/listen');
+
+test('reason keeps DMs, group DMs, mentions and replies in my threads, never my own or edits', () => {
+  const me = 'UME';
+  const cases = [
+    [{ type: 'message', user: 'U1', channel_type: 'im', text: 'hi' }, 'dm'],
+    [{ type: 'message', user: 'U1', channel_type: 'mpim', text: 'hi' }, 'group'],
+    [{ type: 'message', user: 'U1', channel_type: 'channel', text: 'ping <@UME>' }, 'mention'],
+    [{ type: 'message', user: 'U1', channel_type: 'channel', text: 'ok', thread_ts: '1.1', parent_user_id: 'UME' }, 'thread'],
+    [{ type: 'message', user: 'U1', channel_type: 'channel', text: 'chatter' }, null],
+    [{ type: 'message', user: 'UME', channel_type: 'im', text: 'mine' }, null],
+    [{ type: 'message', subtype: 'message_changed', channel_type: 'im' }, null],
+    [{ type: 'message', subtype: 'bot_message', bot_id: 'B1', channel_type: 'im', text: 'bot' }, null],
+    [{ type: 'message', subtype: 'file_share', user: 'U1', channel_type: 'im', text: '' }, 'dm'],
+    [{ type: 'reaction_added', user: 'U1' }, null],
+  ];
+  for (const [event, want] of cases) assert.strictEqual(listener.reason(event, me), want, JSON.stringify(event));
+});
+
+test('session acks every envelope, passes only events for me, and ends on disconnect', async () => {
+  const sent = [];
+  let sock;
+  global.WebSocket = class { constructor(url) { this.url = url; sock = this; } send(d) { sent.push(JSON.parse(d)); } close() { this.onclose(); } };
+  const got = [];
+  const done = listener.session('wss://x', 'UME', (e, why) => got.push([e.ts, why]), () => {});
+  const push = (m) => sock.onmessage({ data: JSON.stringify(m) });
+  push({ type: 'hello' });
+  push({ type: 'events_api', envelope_id: 'e1', payload: { event: { type: 'message', user: 'U1', channel_type: 'im', ts: '1.0', text: 'hi' } } });
+  push({ type: 'events_api', envelope_id: 'e2', payload: { event: { type: 'message', user: 'U1', channel_type: 'channel', ts: '2.0', text: 'noise' } } });
+  push({ type: 'disconnect', reason: 'refresh_requested' });
+  await done;
+  assert.deepStrictEqual(sent, [{ envelope_id: 'e1' }, { envelope_id: 'e2' }]);
+  assert.deepStrictEqual(got, [['1.0', 'dm']]);
+});
+
+test('inbox shows only what arrived since the last check, across calls', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-inbox-'));
+  process.env.SLK_INBOX = path.join(dir, 'inbox.jsonl');
+  const add = (ts) => fs.appendFileSync(process.env.SLK_INBOX, `${JSON.stringify({ ts, text: `m${ts}` })}\n`);
+  try {
+    assert.deepStrictEqual(listener.unread(), []);
+    add('1'); add('2');
+    assert.deepStrictEqual(listener.unread().map((r) => r.ts), ['1', '2']);
+    assert.deepStrictEqual(listener.unread(), []);
+    add('3');
+    assert.deepStrictEqual(listener.unread().map((r) => r.ts), ['3']);
+    assert.strictEqual(listener.readInbox().length, 3);
+  } finally {
+    delete process.env.SLK_INBOX;
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test('launchd plist runs this checkout\'s listen with no extra flags', () => {
+  const xml = listener.plist();
+  assert.match(xml, /<string>com\.slk\.listen<\/string>/);
+  assert.match(xml, /slk\.js<\/string><string>listen<\/string><\/array>/);
+  assert.match(xml, /<key>KeepAlive<\/key><true\/>/);
+});
+
+test('inbox groups new messages by conversation', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-inbox-'));
+  process.env.SLK_INBOX = path.join(dir, 'inbox.jsonl');
+  const add = (e) => fs.appendFileSync(process.env.SLK_INBOX, `${JSON.stringify(e)}\n`);
+  add({ ts: '1', time: 't1', channel: 'D1', where: 'dm', from: 'Sam', why: 'dm', text: 'a', permalink: 'p1' });
+  add({ ts: '2', time: 't2', channel: 'C1', where: '#dev', from: 'Ann', why: 'mention', text: 'b', permalink: 'p2' });
+  add({ ts: '3', time: 't3', channel: 'D1', where: 'dm', from: 'Sam', why: 'dm', text: 'c', permalink: 'p3' });
+  const logs = [];
+  const orig = console.log;
+  console.log = (s) => logs.push(s);
+  try {
+    await main(['inbox', '--json']);
+  } finally {
+    console.log = orig;
+    delete process.env.SLK_INBOX;
+    fs.rmSync(dir, { recursive: true });
+  }
+  const groups = JSON.parse(logs[0]);
+  assert.deepStrictEqual(groups.map((g) => [g.where, g.entries.map((e) => e.ts)]), [['dm with Sam', ['1', '3']], ['#dev', ['2']]]);
+});
+
+test('history of a person opens their DM and prints oldest first', async () => {
+  const calls = mockFetch((method) => res({
+    'conversations.open': { ok: true, channel: { id: 'D9' } },
+    'conversations.history': { ok: true, messages: [{ ts: '2.0', user: 'UHIST1', text: 'second' }, { ts: '1.0', user: 'UHIST1', text: 'first', reply_count: 2 }] },
+    'users.info': { ok: true, user: { profile: { display_name: 'Sam' } } },
+  }[method]));
+  const logs = [];
+  const orig = console.log;
+  console.log = (s) => logs.push(s);
+  try {
+    await main(['history', 'U1ABCDEFG', '--last', '5']);
+  } finally {
+    console.log = orig;
+  }
+  assert.deepStrictEqual(calls.map((c) => c.method).filter((m) => m !== 'users.info'), ['conversations.open', 'conversations.history']);
+  assert.match(logs[0], /Sam: first \(2 replies, slk read D9 1\.0\)\n.*Sam: second/);
+});
+
+test('session closes a silent socket so listen reconnects, and skips unreadable frames', async () => {
+  let sock;
+  global.WebSocket = class { constructor() { sock = this; } send() {} close() { this.onclose(); } };
+  const logs = [];
+  const done = listener.session('wss://x', 'UME', () => {}, (m) => logs.push(m), 20);
+  sock.onmessage({ data: 'not json' });
+  await done;
+  assert.deepStrictEqual(logs, ['unreadable frame skipped', 'no frames, reconnecting']);
+});
+
+test('a truncated inbox line is skipped, not fatal', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slk-inbox-'));
+  process.env.SLK_INBOX = path.join(dir, 'inbox.jsonl');
+  try {
+    fs.writeFileSync(process.env.SLK_INBOX, `${JSON.stringify({ ts: '1' })}\n{"ts":"2","te\n`);
+    assert.deepStrictEqual(listener.readInbox().map((r) => r.ts), ['1']);
+  } finally {
+    delete process.env.SLK_INBOX;
+    fs.rmSync(dir, { recursive: true });
+  }
+});

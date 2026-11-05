@@ -2,7 +2,8 @@
 /** slk: Slack CLI. Reads and posts as the owner of SLACK_USER_TOKEN. See README.md. */
 const fs = require('fs');
 const readline = require('readline');
-const { ROOT, api, envFile, stylePath, parseTarget, checkStyle, expandMentions } = require('./lib/slack');
+const { ROOT, api, envFile, stylePath, parseTarget, checkStyle, expandMentions, when, nameOfUser, replaceUserIds } = require('./lib/slack');
+const listener = require('./lib/listen');
 
 
 function parseArgs(argv) {
@@ -19,17 +20,6 @@ function parseArgs(argv) {
 }
 
 const out = (flags, human, data) => console.log(flags.json ? JSON.stringify(data) : human);
-
-/** Short local time for a Slack ts, e.g. "05 Nov 14:32". */
-const when = (ts) => new Date(Number(ts) * 1000).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).replace(',', '');
-
-const userCache = new Map();
-const nameOfUser = async (id) => {
-  if (!userCache.has(id)) {
-    userCache.set(id, api('users.info', { user: id }).then((d) => d.user.profile.display_name || d.user.real_name || d.user.name).catch(() => id));
-  }
-  return userCache.get(id);
-};
 
 const describe = (u) => ({ id: u.id, name: u.name, real_name: u.real_name, display_name: u.profile?.display_name, title: u.profile?.title, email: u.profile?.email });
 
@@ -63,6 +53,14 @@ async function resolveUserId(query) {
   if (pick.length !== 1) throw new Error(pick.length ? `"${q}" is ambiguous: ${pick.map((u) => u.real_name || u.name).join(', ')}` : `No Slack user found for "${q}".`);
 
   return pick[0].id;
+}
+
+/** Channel id for a person (opens or finds the DM, no message sent), a #name or a raw channel id. */
+async function conversationOf(ref) {
+  if (ref.startsWith('#') || /^[CGD][A-Z0-9]{6,}$/.test(ref)) return resolveChannel(ref);
+  const id = ref.includes('@') && ref.includes('.') ? (await api('users.lookupByEmail', { email: ref })).user.id : await resolveUserId(ref);
+
+  return (await api('conversations.open', { users: id })).channel.id;
 }
 
 async function resolveChannel(ref) {
@@ -100,14 +98,36 @@ async function send(flags, label, channel, rawText, extra = {}) {
   out(flags, permalink, { channel: d.channel, ts: d.ts, permalink });
 }
 
+/** Message events Slack pushes on the owner's behalf; the listener keeps only the ones meant for them. */
+const USER_EVENTS = ['message.im', 'message.mpim', 'message.channels', 'message.groups'];
+
 const SCOPES = ['chat:write', 'channels:history', 'groups:history', 'im:history', 'mpim:history', 'im:write', 'users:read', 'users:read.email', 'search:read', 'channels:read', 'groups:read'];
 
 /** Slack app manifest asking for user token scopes only. */
 const manifest = (name) => ({
   display_information: { name },
   oauth_config: { scopes: { user: SCOPES } },
-  settings: { org_deploy_enabled: false, socket_mode_enabled: false, token_rotation_enabled: false },
+  settings: { event_subscriptions: { user_events: USER_EVENTS }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false },
 });
+
+/** Ask for the app-level token (xapp-, scope connections:write), check it opens a socket, and add it to .env. */
+async function saveAppToken() {
+  console.log(`The inbox needs Socket Mode on your Slack app:
+  1. https://api.slack.com/apps, open your slk app.
+  2. Socket Mode: turn it on and create an app-level token with connections:write.
+  3. Event Subscriptions: turn on, and under "Subscribe to events on behalf of users" add
+     ${USER_EVENTS.join(', ')}. Save, and reinstall the app if Slack asks.
+  4. Paste the app-level token below (it starts with xapp-).
+`);
+  const token = process.stdin.isTTY ? await promptHidden('Paste the app-level token (hidden): ') : fs.readFileSync(0, 'utf8').trim();
+  if (!token.startsWith('xapp-')) throw new Error('That is not an app-level token: it must start with xapp-.');
+  await api('apps.connections.open', {}, false, token);
+  const file = envFile();
+  const kept = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim() && !/^\s*SLACK_APP_TOKEN\s*=/.test(l)) : [];
+  fs.writeFileSync(file, `${[...kept, `SLACK_APP_TOKEN=${token}`].join('\n')}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  console.log(`Saved to ${file} (mode 600). Start the listener: slk listen --install`);
+}
 
 /** Read a line from stdin. On a TTY the typed characters are not echoed. */
 function promptHidden(question) {
@@ -125,6 +145,7 @@ function promptHidden(question) {
 
 const commands = {
   async setup(_pos, flags) {
+    if (flags['app-token']) return saveAppToken();
     const name = typeof flags.name === 'string' && flags.name ? flags.name : 'slk';
     const file = envFile();
     if (fs.existsSync(file) && !flags.force) throw new Error(`${file} already exists. Use --force to overwrite it.`);
@@ -140,7 +161,42 @@ Steps:
     const d = await api('auth.test', {}, false, token);
     fs.writeFileSync(file, `SLACK_USER_TOKEN=${token}\n`, { mode: 0o600 });
     fs.chmodSync(file, 0o600);
-    console.log(`Saved to ${file} (mode 600). Connected as ${d.user} in ${d.team}.`);
+    console.log(`Saved to ${file} (mode 600). Connected as ${d.user} in ${d.team}.\nFor the inbox, also run: slk setup --app-token`);
+  },
+
+  /** Run the Socket Mode listener in the foreground, or install/remove it as a launchd agent. */
+  async listen(_pos, flags) {
+    if (flags.uninstall) {
+      listener.uninstallAgent();
+      return console.log(`Stopped and removed ${listener.LABEL}.`);
+    }
+    if (flags.install) return console.log(`Installed and started ${listener.installAgent()}. Inbox: ${listener.inboxFile()}`);
+    await listener.listen();
+  },
+
+  /** Messages meant for you since the last check, grouped by conversation (--all: the last --count instead). */
+  async inbox(_pos, flags) {
+    const rows = flags.all ? listener.readInbox().slice(-(flags.count || 20)) : listener.unread();
+    const groups = [...Map.groupBy(rows, (r) => r.channel).values()].map((list) => ({
+      channel: list[0].channel,
+      where: list[0].where === 'dm' ? `dm with ${list[0].from}` : list[0].where,
+      entries: list,
+    }));
+    const line = (r) => `  [${r.time}] ${r.from}${r.why === 'thread' ? ' (in your thread)' : ''}: ${r.text}\n    ${r.permalink || `${r.channel} ${r.ts}`}`;
+    const human = groups.map((g) => `${g.where} (${g.entries.length})\n${g.entries.map(line).join('\n')}`).join('\n\n');
+    out(flags, human || (flags.all ? 'Inbox is empty.' : 'Nothing new.'), groups);
+  },
+
+  /** The recent conversation with a person (their DM) or in a channel, oldest first: context before drafting. */
+  async history([who], flags) {
+    if (!who) throw new Error('Usage: slk history <@name|userId|email|#channel|channelId> [--last N]');
+    const channel = await conversationOf(who);
+    const { messages } = await api('conversations.history', { channel, limit: flags.last || 20 });
+    const rows = [];
+    for (const m of messages.reverse()) {
+      rows.push({ ts: m.ts, time: when(m.ts), name: m.user ? await nameOfUser(m.user) : (m.username || 'bot'), text: await replaceUserIds(m.text || ''), replies: m.reply_count || 0 });
+    }
+    out(flags, rows.map((r) => `[${r.time}] ${r.name}: ${r.text}${r.replies ? ` (${r.replies} replies, slk read ${channel} ${r.ts})` : ''}`).join('\n') || 'No messages.', rows);
   },
 
   async whoami(_pos, flags) {
@@ -231,17 +287,13 @@ async function searchMessages(query, count) {
   return rows.slice(0, count);
 }
 
-/** `<@U123>` in incoming text becomes `@Name`. */
-async function replaceUserIds(text) {
-  const ids = [...new Set([...text.matchAll(/<@([UW][A-Z0-9]+)>/g)].map((m) => m[1]))];
-  for (const id of ids) text = text.replaceAll(`<@${id}>`, `@${await nameOfUser(id)}`);
-
-  return text;
-}
-
 const HELP = `slk <command> [args] [--json] [--dry-run]
 
   setup [--name "App Name"] [--force]      print the app manifest, then save your token
+  setup --app-token                         save the app-level token the inbox listener needs
+  listen [--install | --uninstall]          receive your DMs, mentions and thread replies (launchd agent)
+  inbox [--all] [--count N]                 messages for you since the last check, by conversation
+  history <@name|#channel> [--last N]       the recent conversation with a person or in a channel
   whoami                                    who the token belongs to
   search "<query>" [--count N]               search messages (Slack search syntax), newest first
   sent [--count N]                          your own sent messages, newest first
