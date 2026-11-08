@@ -12,7 +12,7 @@ As a plugin:
 
 ```
 /plugin marketplace add pravnyadv/claude-plugins
-/plugin install slack-messages@pravnyadv
+/plugin install slack@pravnyadv
 ```
 
 Or clone and run `./install.sh`. It copies the skill into `~/.claude/skills/slack-messages` and links `slk` into `~/.local/bin`.

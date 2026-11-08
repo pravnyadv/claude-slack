@@ -6,6 +6,10 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+### Changed
+- The plugin is now `slack@pravnyadv` (was `slack-messages@pravnyadv`) and the repo is `claude-slack`.
+  Reinstall with `/plugin install slack@pravnyadv`.
+
 ## [0.5.0] - 2026-11-05
 
 ### Added

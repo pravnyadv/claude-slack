@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "slack-messages",
+      "name": "slack",
       "source": "./",
       "description": "Slack CLI (slk) plus a Claude Code skill to read and reply on Slack as you, draft-first."
     }
