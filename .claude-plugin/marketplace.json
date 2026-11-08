@@ -1,5 +1,5 @@
 {
-  "name": "slack-claude",
+  "name": "claude-slack",
   "description": "slk: read and reply on Slack from Claude Code as yourself, draft-first.",
   "owner": {
     "name": "pravnyadv",

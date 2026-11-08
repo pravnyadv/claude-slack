@@ -1,4 +1,4 @@
-# slack-claude
+# claude-slack
 
 `slk` is a small Slack CLI (Node 22+, no dependencies) plus a Claude Code skill. Claude reads and replies on Slack as you, through your own user token, never a bot. Every write is a draft you approve first.
 
