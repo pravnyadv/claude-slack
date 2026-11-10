@@ -1,6 +1,6 @@
 {
   "name": "claude-slack",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Slack CLI (slk) plus a skill so Claude Code reads and replies on Slack as you, with your own user token, draft-first.",
   "license": "MIT",
   "author": "pravnyadv",

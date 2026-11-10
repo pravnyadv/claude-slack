@@ -6,6 +6,8 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-10
+
 ### Added
 - Human typing pause: every real send first waits as long as typing it takes at `SLK_WPM` words per
   minute (default 80, 5 characters a word, 10% jitter, 2s to 90s). `SLK_WPM=0` sends at once; dry
