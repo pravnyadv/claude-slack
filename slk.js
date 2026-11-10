@@ -98,7 +98,18 @@ function readText(src) {
   return src;
 }
 
-/** Check the writing rules, expand mentions, then show (dry run) or send a chat.postMessage. */
+/**
+ * How long a person typing at SLK_WPM (default 80, 0 turns it off) takes to write `text`, with
+ * 20% jitter so replies never land at a fixed rhythm. A word is 5 characters, the WPM convention.
+ */
+function typingMs(text, wpm = Number(envValue('SLK_WPM') ?? 80), jitter = Math.random()) {
+  if (!(wpm > 0)) return 0;
+  const ms = (text.length / 5 / wpm) * 60_000 * (0.9 + 0.2 * jitter);
+
+  return Math.round(Math.min(90_000, Math.max(2_000, ms)));
+}
+
+/** Check the writing rules, expand mentions, then show (dry run) or send a chat.postMessage after a human typing pause. */
 async function send(flags, label, channel, rawText, extra = {}) {
   checkStyle(rawText);
   const text = await expandMentions(rawText, resolveUserId);
@@ -106,6 +117,7 @@ async function send(flags, label, channel, rawText, extra = {}) {
     out(flags, `[dry run] ${label}\n  channel: ${channel}${extra.thread_ts ? `\n  thread_ts: ${extra.thread_ts}` : ''}\n  text: ${text}`, { dryRun: true, label, channel, ...extra, text });
     return;
   }
+  await new Promise((r) => setTimeout(r, typingMs(rawText)));
   const d = await api('chat.postMessage', { channel, text, ...extra });
   const { permalink } = await api('chat.getPermalink', { channel: d.channel, message_ts: d.ts });
   // A DM is one conversation; elsewhere this session follows the thread the message lives in.
@@ -346,7 +358,8 @@ const HELP = `slk <command> [args] [--json] [--dry-run]
   dm <@name|userId|email> <text>            direct message
   post <channelId|#name> <text>             post in a channel
 
-<text> is a literal, @file or - (stdin). Writes accept --dry-run and refuse em/en dashes,
+<text> is a literal, @file or - (stdin). A send waits as long as typing it takes at SLK_WPM
+(default 80, max 90s, 0 = instant). Writes accept --dry-run and refuse em/en dashes,
 arrows, bullet characters and curly quotes. In text, @{Full Name} or @First becomes a mention.
 First run: slk setup`;
 
@@ -364,4 +377,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main, commands, io };
+module.exports = { main, commands, io, typingMs };

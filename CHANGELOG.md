@@ -6,9 +6,17 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+### Added
+- Human typing pause: every real send first waits as long as typing it takes at `SLK_WPM` words per
+  minute (default 80, 5 characters a word, 10% jitter, 2s to 90s). `SLK_WPM=0` sends at once; dry
+  runs never wait.
+
 ### Changed
 - The plugin is now `slack@pravnyadv` (was `slack-messages@pravnyadv`) and the repo is `claude-slack`.
   Reinstall with `/plugin install slack@pravnyadv`.
+- `styles/praveen.md` gets a length budget (a live-chat reply is at most 25 words, longer content
+  goes as two or three short messages) with before and after examples; the skill cuts every draft
+  to the budget before sending.
 
 ## [0.5.0] - 2026-11-05
 

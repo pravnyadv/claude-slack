@@ -1,10 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert');
 process.env.SLACK_USER_TOKEN = 'xoxp-test';
+process.env.SLK_WPM = '0';
 delete process.env.CLAUDE_CODE_SESSION_ID;
 process.env.SLK_DB = require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'slk-test-')), 'slk.db');
 const { SlackApiError, api, parseTarget, checkStyle, expandMentions } = require('../lib/slack');
-const { main, io } = require('../slk');
+const { main, io, typingMs } = require('../slk');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -301,3 +302,12 @@ test('a send links the DM to this session and points at slk wait', () => withSto
   store.addMessage(msg('D7', '10.0'));
   assert.deepStrictEqual(store.takeMine().map((r) => r.ts), ['10.0']);
 }));
+
+test('typing pause follows WPM, floors at 2s, caps at 90s, off at 0', () => {
+  const words = (n) => 'abcd '.repeat(n);
+  assert.strictEqual(typingMs(words(40), 80, 0.5), 30_000);
+  assert.strictEqual(typingMs(words(40), 80, 0), 27_000);
+  assert.strictEqual(typingMs('ok', 80, 0.5), 2_000);
+  assert.strictEqual(typingMs(words(500), 80, 0.5), 90_000);
+  assert.strictEqual(typingMs(words(40), 0), 0);
+});

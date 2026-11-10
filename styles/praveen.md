@@ -4,7 +4,11 @@ A real profile, learned from about 9,800 sent Slack messages (patterns only, no 
 
 ## Two registers
 
-Casual (about 90%): a handful of words, one line, lowercase including "i", no end punctuation, no greeting or sign-off, Hinglish. Formal (about 10%, explanations, decisions, notes for people outside the team): full sentences, capitals, full stops, English, outcome first, a numbered list only for separate items.
+Casual (about 90%): a handful of words, one line, lowercase including "i", no end punctuation, no greeting or sign-off, Hinglish. Formal (about 10%, decisions or notes for people outside the team, never a reply in a live chat): full sentences, capitals, full stops, English, outcome first, a numbered list only for separate items.
+
+## Length budget
+
+A reply in a live DM or thread is at most 25 words, usually under 12. If it needs more, it is two or three short lines sent as separate messages, each one thought. Keep every fact and step, drop the rest: no restating what they said, no "please", "I'll check right away", "if it doesn't work we'll look again", no explaining why unless they asked why. Steps they must do become the bare steps. Details that do not fit go on the task, with "details on the task".
 
 ## Drafting rules
 
@@ -28,6 +32,26 @@ Casual (about 90%): a handful of words, one line, lowercase including "i", no en
 Never ask permission for work already owned, such as testing on QA. Test first, then bring the result and the proposed fix, and ask only whether to ship it.
 
 ## Examples (invented)
+
+Too long, then the same content as it should be sent:
+
+> Done, the branch is on QA main now. Both migrations were already in place, so nothing to run. For the ad source, check the received event, not the sent one (details on the task). If any message is missing from the timeline, send me its time and I'll trace it.
+
+> done, on qa main. no migrations needed
+> check received event for ad source, not sent
+> anything missing on timeline, send me the time
+
+> Yes, both numbers are on the same inbox, but the first one is the one Meta is blocking right now. The second still has full permission, so please test on that one for now: one reply from the inbox and one image from your phone.
+
+> test on the second number for now
+> first one is blocked on meta side, fixing it
+> one reply + one image pls
+
+> The settings checkboxes only cover your own login, not the system user QA sends with, so let's do the onboarding route. Reconnect the account through the connect flow as a business admin, pick the existing account, and allow every permission. Ping me when done.
+
+> checkboxes only cover ur login, not the system user
+> reconnect through onboarding as business admin, allow all permissions
+> ping me after
 
 Asked whether the export worked:
 
