@@ -6,6 +6,9 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+### Changed
+- The app manifest asks for `files:read`, so attachments on a message (images, PDFs) can be downloaded. Existing installs: add the scope under OAuth & Permissions and reinstall the app.
+
 ## [0.6.0] - 2026-11-10
 
 ### Added

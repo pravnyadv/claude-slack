@@ -128,7 +128,7 @@ async function send(flags, label, channel, rawText, extra = {}) {
 /** Message events Slack pushes on the owner's behalf; the listener keeps only the ones meant for them. */
 const USER_EVENTS = ['message.im', 'message.mpim', 'message.channels', 'message.groups'];
 
-const SCOPES = ['chat:write', 'channels:history', 'groups:history', 'im:history', 'mpim:history', 'im:write', 'users:read', 'users:read.email', 'search:read', 'channels:read', 'groups:read'];
+const SCOPES = ['chat:write', 'channels:history', 'groups:history', 'im:history', 'mpim:history', 'im:write', 'users:read', 'users:read.email', 'search:read', 'channels:read', 'groups:read', 'files:read'];
 
 /** Slack app manifest asking for user token scopes only. */
 const manifest = (name) => ({
