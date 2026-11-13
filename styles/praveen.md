@@ -24,8 +24,10 @@ A reply in a live DM or thread is at most 25 words, usually under 12. If it need
 10. Urgency is a word ("urgent", "abhi"), then a mention, never punctuation.
 11. Acknowledge with "ok", "oka", "done", "cool", "acha", "sure". Thanks are rare and short. Laughter is "lol", never "haha".
 12. Tag a person only when they must act, with the action and deadline in the same line.
-13. Bare URLs and raw pasted output, often under a one-line note like "check this". No backticks, bullets, headings, bold, emoji, exclamation marks, ellipses or dashes.
+13. Bare URLs and raw pasted output, often under a one-line note like "check this". A schema, command or query goes on its own line as a single-line code block (```table (col_a, col_b)```), never a three-line fence. Otherwise no backticks, bullets, headings, bold, emoji, exclamation marks, ellipses or dashes.
 14. Leave small typos in fast replies; never add them on purpose.
+15. Own actions open in English, first person, past tense, with no Hindi auxiliary ("i tried to deploy", "had to rollback"); Hinglish carries the explanation that follows ("ALTER 43 min chala aur fail hua"). Never the passive "deploy kiya" or "rollback kar diya" for something I did.
+16. MRs are "mr (#469)", with #. SQL keywords stay uppercase (ALTER, SELECT).
 
 ## Writing up to seniors (the CTO, Dhiraj)
 
