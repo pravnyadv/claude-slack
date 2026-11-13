@@ -283,6 +283,17 @@ Steps:
     await send(flags, 'reply', channel, readText(pos.at(-1)), { thread_ts: threadTs });
   },
 
+  async edit(pos, flags) {
+    const { channel, ts } = parseTarget(pos.slice(0, -1));
+    const rawText = readText(pos.at(-1));
+    checkStyle(rawText);
+    const text = await expandMentions(rawText, resolveUserId);
+    if (flags['dry-run']) return out(flags, `[dry run] edit\n  channel: ${channel}\n  ts: ${ts}\n  text: ${text}`, { dryRun: true, channel, ts, text });
+    await api('chat.update', { channel, ts, text });
+    const { permalink } = await api('chat.getPermalink', { channel, message_ts: ts });
+    out(flags, `edited ${permalink}`, { channel, ts, permalink });
+  },
+
   async dm([who, text], flags) {
     if (!who) throw new Error('Usage: slk dm <@name|userId|email> "<text>"');
     const body = readText(text);
@@ -355,6 +366,7 @@ const HELP = `slk <command> [args] [--json] [--dry-run]
   who <name|email>                          find users (id, handle, name, title)
   read <permalink | channelId ts> [--last N]  print a thread (root plus the last N replies)
   reply <permalink | channelId ts> <text>   reply in the thread
+  edit <permalink | channelId ts> <text>    replace the text of your own message
   dm <@name|userId|email> <text>            direct message
   post <channelId|#name> <text>             post in a channel
 
