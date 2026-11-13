@@ -6,6 +6,12 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+### Added
+- `slk edit <permalink | channelId ts> <text>` replaces the text of your own message (`chat.update`), with the same style checks, mention expansion and `--dry-run` as a send.
+
+### Changed
+- The skill puts technical snippets (column lists, commands, queries, paths) on their own line in a code block, and fixes a sent message with `edit` instead of sending a second one.
+
 ## [0.6.1] - 2026-11-12
 
 ### Changed
