@@ -6,6 +6,8 @@ Release with `scripts/release.sh <version>`: it moves Unreleased under the new v
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-13
+
 ### Added
 - `slk edit <permalink | channelId ts> <text>` replaces the text of your own message (`chat.update`), with the same style checks, mention expansion and `--dry-run` as a send.
 

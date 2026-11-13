@@ -1,7 +1,7 @@
 {
   "name": "slack",
   "description": "Slack CLI (slk) plus a skill so Claude Code reads and replies on Slack as you, with your own user token, draft-first.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "author": {
     "name": "pravnyadv"
   },
