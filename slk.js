@@ -117,7 +117,8 @@ async function send(flags, label, channel, rawText, extra = {}) {
     out(flags, `[dry run] ${label}\n  channel: ${channel}${extra.thread_ts ? `\n  thread_ts: ${extra.thread_ts}` : ''}\n  text: ${text}`, { dryRun: true, label, channel, ...extra, text });
     return;
   }
-  await new Promise((r) => setTimeout(r, typingMs(rawText)));
+  // Only a reply in a live exchange (--live) waits as long as typing it takes; a one-off send goes at once.
+  if (flags.live) await new Promise((r) => setTimeout(r, typingMs(rawText)));
   const d = await api('chat.postMessage', { channel, text, ...extra });
   const { permalink } = await api('chat.getPermalink', { channel: d.channel, message_ts: d.ts });
   // A DM is one conversation; elsewhere this session follows the thread the message lives in.
@@ -370,8 +371,8 @@ const HELP = `slk <command> [args] [--json] [--dry-run]
   dm <@name|userId|email> <text>            direct message
   post <channelId|#name> <text>             post in a channel
 
-<text> is a literal, @file or - (stdin). A send waits as long as typing it takes at SLK_WPM
-(default 80, max 90s, 0 = instant). Writes accept --dry-run and refuse em/en dashes,
+<text> is a literal, @file or - (stdin). A send goes at once; with --live (a reply in a live
+exchange) it first waits as long as typing it takes at SLK_WPM (default 80, max 90s, 0 = instant). Writes accept --dry-run and refuse em/en dashes,
 arrows, bullet characters and curly quotes. In text, @{Full Name} or @First becomes a mention.
 First run: slk setup`;
 

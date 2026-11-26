@@ -68,7 +68,7 @@ slk help
 
 `SLK_SEND` in `.env`: unset or `draft-first` (default) means Claude shows every message as a draft first; `when-sure` lets it send on its own when the skill's conditions hold and tell you after. `slk style` prints the active mode.
 
-Every real send first waits as long as a person takes to type it: `SLK_WPM` words per minute (default 80, a word being 5 characters), with some jitter, at least 2s and at most 90s. `SLK_WPM=0` sends at once. Dry runs never wait.
+A send goes at once. With `--live` (a reply while actively in a conversation) it first waits as long as a person takes to type it: `SLK_WPM` words per minute (default 80, a word being 5 characters), with some jitter, at least 2s and at most 90s. `SLK_WPM=0` sends at once. Dry runs never wait.
 
 ## Writing profile
 
