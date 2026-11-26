@@ -8,11 +8,11 @@ Casual (about 90%): a handful of words, one line, lowercase including "i", no en
 
 ## Length budget
 
-A reply in a live DM or thread is at most 25 words, usually under 12. If it needs more, it is two or three short lines sent as separate messages, each one thought. Keep every fact and step, drop the rest: no restating what they said, no "please", "I'll check right away", "if it doesn't work we'll look again", no explaining why unless they asked why. Steps they must do become the bare steps. Details that do not fit go on the task, with "details on the task".
+A reply in a live DM or thread is at most 25 words, usually under 12. If it needs more, it is two or three short lines, each one thought, sent together as ONE message (line breaks, not separate sends). Keep every fact and step, drop the rest: no restating what they said, no "please", "I'll check right away", "if it doesn't work we'll look again", no explaining why unless they asked why. Steps they must do become the bare steps. Details that do not fit go on the task, with "details on the task".
 
 ## Drafting rules
 
-1. Most messages are a few words or one short line. Two thoughts become two short messages, never a casual paragraph.
+1. Most messages are a few words or one short line. Two thoughts become two short lines in one message, never a casual paragraph and never two sends.
 2. Leave statements unpunctuated. "?" only for a real question or a one-word check-in ("there?", "updated?").
 3. "u" for "you", contractions without apostrophes ("dont", "cant"). Occasional "pls", "btw", "idk", "ya".
 4. Hinglish: an English task word plus a Hindi auxiliary ("check kar do", "fix ho gya", "dekh lo", "bata do"), or a Hindi frame led by "ye" or "kya" around English technical words. Negation "ni" or "nhi". Yes is "ha". Common: hai, toh, bhai, abhi, bhi, kuch, theek hai, acha, hai na. Technical explanations and pasted content stay in English.
